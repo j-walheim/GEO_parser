@@ -3,7 +3,6 @@ import xml.etree.ElementTree as ET
 import duckdb
 
 # Connect to DuckDB
-#overwrite the database if it already exists
 if os.path.exists('gse_metadata.db'):
     os.remove('gse_metadata.db')
 con = duckdb.connect('gse_metadata.db')
@@ -86,25 +85,28 @@ def extract_metadata(xml_file):
         'supplementary_data': '; '.join(filter(None, sample_data['supplementary_data']))
     }
 
-
-# Process XML files
+# Process XML files in all subfolders
 xml_dir = 'data/GSE_meta'
-for filename in os.listdir(xml_dir):
-    if filename.endswith('_family.xml'):
-        file_path = os.path.join(xml_dir, filename)
-        metadata = extract_metadata(file_path)
-        con.execute('''
-            INSERT INTO gse_metadata 
-            (series_id, title, summary, overall_design, organism, treatment, treatment_protocol, 
-            source, characteristics, molecule, extract_protocol, data_processing, 
-            library_strategy, library_source, supplementary_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', tuple(metadata.values()))
+for root, dirs, files in os.walk(xml_dir):
+    for filename in files:
+        if filename.endswith('.xml'):
+            file_path = os.path.join(root, filename)
+            try:
+                metadata = extract_metadata(file_path)
+                con.execute('''
+                    INSERT INTO gse_metadata 
+                    (series_id, title, summary, overall_design, organism, treatment, treatment_protocol, 
+                    source, characteristics, molecule, extract_protocol, data_processing, 
+                    library_strategy, library_source, supplementary_data)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', tuple(metadata.values()))
+                print(f"Processed: {file_path}")
+            except Exception as e:
+                print(f"Error processing {file_path}: {str(e)}")
 
 # Verify the data
-result = con.execute("SELECT * FROM gse_metadata").fetchall()
-#for row in result:
-#    print(row)#
+result = con.execute("SELECT COUNT(*) FROM gse_metadata").fetchone()
+print(f"Total records inserted: {result[0]}")
 
 # Close the connection
 con.close()
