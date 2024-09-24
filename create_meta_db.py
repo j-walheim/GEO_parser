@@ -75,11 +75,12 @@ def extract_metadata(xml_file):
     authors_institutions = set()
     for contributor in root.findall('.//ns:Contributor', namespaces=namespace):
         country = find_text('.//ns:Address/ns:Country', contributor)
-        if country:
-            authors_countries.add(country)
         institution = find_text('.//ns:Organization', contributor)
-        if institution:
-            authors_institutions.add(institution)
+        if institution != 'GEO' and country != 'USA':
+            if country:
+                authors_countries.add(country)
+            if institution:
+                authors_institutions.add(institution)
 
     # Extract PubMed ID
     pubmed_id = find_text('.//ns:Series/ns:Pubmed-ID')
