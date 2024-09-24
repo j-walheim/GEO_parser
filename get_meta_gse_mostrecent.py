@@ -2,6 +2,7 @@ import ftplib
 import os
 import tarfile
 import re
+import glob
 
 def get_most_recent_folders(ftp, num_folders=20):
     ftp.cwd("/geo/series/")
@@ -55,7 +56,18 @@ def download_and_extract_miniml(ftp, main_folder, subfolder):
     except ftplib.error_perm as e:
         print(f"Error processing {main_folder}/{subfolder}: {str(e)}")
 
+def folder_already_processed(main_folder):
+    folder_path = f"data/GSE_meta/{main_folder}"
+    if os.path.exists(folder_path):
+        xml_files = glob.glob(os.path.join(folder_path, "**", "*.xml"), recursive=True)
+        return len(xml_files) > 0
+    return False
+
 def process_folder(ftp, folder):
+    if folder_already_processed(folder):
+        print(f"Folder {folder} has already been processed. Skipping.")
+        return
+
     try:
         ftp.cwd(f"/geo/series/{folder}")
         subfolders = ftp.nlst()
@@ -71,7 +83,7 @@ def main():
     ftp.login()
 
     try:
-        # Get the 20 most recent folders
+        # Get the 40 most recent folders
         recent_folders = get_most_recent_folders(ftp)
         
         # Process each folder
