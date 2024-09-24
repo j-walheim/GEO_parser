@@ -162,3 +162,5 @@ cython_debug/
 #.idea/
 data/*
 gse_metadata.db
+
+.env
