@@ -25,19 +25,16 @@ class Extractor:
         return temp_folder
 
     def setup_parse_results_table(self):
-        self.db_connection.execute('''
+        fields_sql = ', '.join([f'{field} VARCHAR' for field in self.fields])
+        self.db_connection.execute(f'''
             CREATE TABLE IF NOT EXISTS parse_results (
                 series_id VARCHAR,
                 prompt_name VARCHAR,
                 extracted_text TEXT,
-                disease_indication VARCHAR,
-                drug_exposure VARCHAR,
-                modalities VARCHAR,
-                num_samples VARCHAR,
-                sample_description VARCHAR,
-                reasoning VARCHAR
+                {fields_sql}
             )
         ''')
+
 
     @observe(as_type="generation")
     def get_llm_response(self, msg):
@@ -80,18 +77,18 @@ class Extractor:
             response = self.get_llm_response(msg)
             parsed_result = self.extract_info(response)
             
-            self.db_connection.execute('''
+            fields_placeholders = ', '.join(['?' for _ in self.fields])
+            fields_names = ', '.join(self.fields)
+            
+            self.db_connection.execute(f'''
                 INSERT INTO parse_results (
                     series_id, prompt_name, extracted_text, 
-                    disease_indication, drug_exposure, modalities, 
-                    num_samples, sample_description, reasoning
+                    {fields_names}
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, {fields_placeholders})
             ''', (
                 series_id, self.prompt_name, text_description,
-                parsed_result['disease_indication'], parsed_result['drug_exposure'],
-                parsed_result['modalities'], parsed_result['num_samples'],
-                parsed_result['sample_description'], parsed_result['reasoning']
+                *[parsed_result[field] for field in self.fields]
             ))
             
             json_data = {
@@ -108,14 +105,17 @@ class Extractor:
             print(f"Error processing study {row[0]}. Skipping...")
             return None
 
+
     def run_extraction(self):
         query = """
         SELECT 
             series_id, title, summary, overall_design, organism, treatment,
             treatment_protocol, source, characteristics, molecule,
-            extract_protocol, data_processing, library_strategy, library_source
+            extract_protocol, data_processing, library_strategy, library_source,
+            authors_countries
         FROM gse_metadata
         WHERE organism LIKE '%Homo sapiens%'
+        LIMIT 1000
         """
         
         results = self.db_connection.execute(query).fetchall()
@@ -137,4 +137,4 @@ class Extractor:
 
 class GSEmetaExtractor(Extractor):
     def __init__(self, model='groq'):
-        super().__init__('GSEmeta', ['disease_indication', 'drug_exposure', 'modalities', 'num_samples', 'sample_description', 'reasoning'], model)
+        super().__init__('GSEmeta', ['high_level_indication', 'indication_detailed', 'drug_exposure', 'modalities','tissue_source', 'number_patients', 'sample_description', 'reasoning'], model)
