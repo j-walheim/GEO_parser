@@ -24,7 +24,10 @@ con.execute('''
         data_processing VARCHAR,
         library_strategy VARCHAR,
         library_source VARCHAR,
-        supplementary_data VARCHAR
+        supplementary_data VARCHAR,
+        authors_countries VARCHAR,
+        authors_institutions VARCHAR,
+        pubmed_id VARCHAR
     )
 ''')
 
@@ -67,6 +70,20 @@ def extract_metadata(xml_file):
         sample_data['library_source'].add(find_text('.//ns:Library-Source', sample))
         sample_data['supplementary_data'].update(supp.text.strip() for supp in sample.findall('.//ns:Supplementary-Data', namespaces=namespace) if supp.text)
 
+    # Extract authors' information
+    authors_countries = set()
+    authors_institutions = set()
+    for contributor in root.findall('.//ns:Contributor', namespaces=namespace):
+        country = find_text('.//ns:Address/ns:Country', contributor)
+        if country:
+            authors_countries.add(country)
+        institution = find_text('.//ns:Organization', contributor)
+        if institution:
+            authors_institutions.add(institution)
+
+    # Extract PubMed ID
+    pubmed_id = find_text('.//ns:Series/ns:Pubmed-ID')
+
     return {
         'series_id': series.attrib['iid'] if series is not None else '',
         'title': find_text('.//ns:Series/ns:Title'),
@@ -82,7 +99,10 @@ def extract_metadata(xml_file):
         'data_processing': '; '.join(filter(None, sample_data['data_processing'])),
         'library_strategy': '; '.join(filter(None, sample_data['library_strategy'])),
         'library_source': '; '.join(filter(None, sample_data['library_source'])),
-        'supplementary_data': '; '.join(filter(None, sample_data['supplementary_data']))
+        'supplementary_data': '; '.join(filter(None, sample_data['supplementary_data'])),
+        'authors_countries': '; '.join(filter(None, authors_countries)),
+        'authors_institutions': '; '.join(filter(None, authors_institutions)),
+        'pubmed_id': pubmed_id
     }
 
 # Process XML files in all subfolders
@@ -97,8 +117,9 @@ for root, dirs, files in os.walk(xml_dir):
                     INSERT INTO gse_metadata 
                     (series_id, title, summary, overall_design, organism, treatment, treatment_protocol, 
                     source, characteristics, molecule, extract_protocol, data_processing, 
-                    library_strategy, library_source, supplementary_data)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    library_strategy, library_source, supplementary_data, authors_countries, 
+                    authors_institutions, pubmed_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', tuple(metadata.values()))
                 print(f"Processed: {file_path}")
             except Exception as e:
