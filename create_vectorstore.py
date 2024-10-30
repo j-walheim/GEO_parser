@@ -7,21 +7,29 @@ import pandas as pd
 import duckdb
 from dotenv import load_dotenv
 import json
+from openai import AzureOpenAI  # Update import
 
 load_dotenv()
 
 class VectorStore:
     def __init__(self):
         self.pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-        self.METADATA_SIZE_LIMIT = 40960  # bytes
+        self.METADATA_SIZE_LIMIT = 40960
         self.FIELD_PRIORITY = [
             'data_processing',
-            'extract_protocol',
+            'extract_protocol', 
             'overall_design'
         ]
-        self.TRUNCATE_FIELD_SIZE = 1000  # Adjust as needed
+        self.TRUNCATE_FIELD_SIZE = 1000
 
-    def prepare_data(self, db_path, limit=None):
+        # Initialize Azure OpenAI client
+        self.azure_client = AzureOpenAI(
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+            api_version="2024-05-01-preview"
+        )
+
+    def prepare_data(self, db_path, limit=1000):
         # Connect to the DuckDB database
         conn = duckdb.connect(db_path)
 
@@ -123,7 +131,7 @@ class VectorStore:
             # Create a new index
             self.pc.create_index(
                 name=index_name,
-                dimension=1024,  # Adjust based on the embedding model used
+                dimension=1536,  # Updated dimension for Azure OpenAI embeddings
                 metric="cosine",
                 spec=ServerlessSpec(
                     cloud="aws",
@@ -169,21 +177,21 @@ class VectorStore:
             # Prepare input text by concatenating key-value pairs
             input_text = ' '.join([f"{key}: {value}" for key, value in row['content'].items()])
 
-            # Generate embedding
-            embedding = self.pc.inference.embed(
-                model="multilingual-e5-large",
-                inputs=[input_text],
-                parameters={"input_type": "passage", "truncate": "END"}
-            )
-
-            if not embedding.data:
-                print(f"Embedding failed for ID {row['id']}. Skipping.")
+            # Generate embedding using Azure OpenAI
+            try:
+                response = self.azure_client.embeddings.create(
+                    model=os.getenv("AZURE_OPENAI_ENDPOINT"), # Use your actual deployment name
+                    input=input_text
+                )
+                embedding = response.data[0].embedding
+            except Exception as e:
+                print(f"Embedding failed for ID {row['id']}: {e}. Skipping.")
                 continue
 
             # Prepare vector for upsert
             vector = {
                 "id": row['id'],
-                "values": embedding.data[0]['values'],
+                "values": embedding,
                 "metadata": row['content']
             }
 
@@ -197,9 +205,6 @@ class VectorStore:
                 print(f"Failed to upsert vector ID {row['id']}: {e}")
                 continue
 
-            # Optional: to prevent overwhelming the API
-            # time.sleep(1)
-
     def retrieve(self, index_name, query):
         max_retries = 5
         base_wait_time = 20
@@ -208,15 +213,16 @@ class VectorStore:
             try:
                 index = self.pc.Index(index_name)
 
-                embedding = self.pc.inference.embed(
-                    model="multilingual-e5-large",
-                    inputs=[query],
-                    parameters={"input_type": "query"}
+                # Generate embedding for the query using Azure OpenAI
+                response = self.azure_client.embeddings.create(
+                    model=os.getenv("AZURE_OPENAI_ENDPOINT"), # Use your actual deployment name
+                    input=query
                 )
+                query_embedding = response.data[0].embedding
 
                 results = index.query(
                     namespace="ns1",
-                    vector=embedding.data[0]['values'],
+                    vector=query_embedding,
                     top_k=10,
                     include_values=False,
                     include_metadata=True
